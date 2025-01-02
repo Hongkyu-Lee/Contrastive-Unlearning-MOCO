@@ -1,0 +1,39 @@
+/home/hlee959/miniconda3/envs/CSUL/lib/python3.10/site-packages/scipy/__init__.py:132: UserWarning: A NumPy version >=1.21.6 and <1.28.0 is required for this version of SciPy (detected version 2.2.1)
+  warnings.warn(f"A NumPy version >={np_minversion} and <{np_maxversion}"
+
+A module that was compiled using NumPy 1.x cannot be run in
+NumPy 2.2.1 as it may crash. To support both 1.x and 2.x
+versions of NumPy, modules must be compiled with NumPy 2.0.
+Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+
+If you are a user of the module, the easiest solution will be to
+downgrade to 'numpy<2' or try to upgrade the affected module.
+We expect that some modules will need time to support NumPy 2.
+
+Traceback (most recent call last):  File "/home/hlee959/projects/2023_CSUL/CSUL_MOCO/train.py", line 18, in <module>
+    from model.modeling import VisionTransformer, CONFIGS
+  File "/home/hlee959/projects/2023_CSUL/CSUL_MOCO/model/modeling.py", line 18, in <module>
+    from scipy import ndimage
+  File "/home/hlee959/miniconda3/envs/CSUL/lib/python3.10/site-packages/scipy/__init__.py", line 189, in __getattr__
+    return _importlib.import_module(f'scipy.{name}')
+  File "/home/hlee959/miniconda3/envs/CSUL/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "/home/hlee959/miniconda3/envs/CSUL/lib/python3.10/site-packages/scipy/ndimage/__init__.py", line 152, in <module>
+    from ._filters import *  # noqa: F401 F403
+  File "/home/hlee959/miniconda3/envs/CSUL/lib/python3.10/site-packages/scipy/ndimage/_filters.py", line 38, in <module>
+    from . import _nd_image
+AttributeError: _ARRAY_API not found
+Traceback (most recent call last):
+  File "/home/hlee959/projects/2023_CSUL/CSUL_MOCO/train.py", line 18, in <module>
+    from model.modeling import VisionTransformer, CONFIGS
+  File "/home/hlee959/projects/2023_CSUL/CSUL_MOCO/model/modeling.py", line 18, in <module>
+    from scipy import ndimage
+  File "/home/hlee959/miniconda3/envs/CSUL/lib/python3.10/site-packages/scipy/__init__.py", line 189, in __getattr__
+    return _importlib.import_module(f'scipy.{name}')
+  File "/home/hlee959/miniconda3/envs/CSUL/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "/home/hlee959/miniconda3/envs/CSUL/lib/python3.10/site-packages/scipy/ndimage/__init__.py", line 152, in <module>
+    from ._filters import *  # noqa: F401 F403
+  File "/home/hlee959/miniconda3/envs/CSUL/lib/python3.10/site-packages/scipy/ndimage/_filters.py", line 38, in <module>
+    from . import _nd_image
+ImportError: numpy.core.multiarray failed to import

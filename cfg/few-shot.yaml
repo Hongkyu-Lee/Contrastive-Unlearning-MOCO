@@ -1,0 +1,22 @@
+# Training settings
+epochs: 10
+batch_size: 128
+learning_rate: 1e-5
+
+# Model settings
+model: 'vit'
+pretrained: true
+device: 'cuda'
+
+# Data settings
+data_path: './data'
+num_workers: 2
+save_path: '/local/scratch2/hlee959/CSUL_MOCO/vit_c100_few_shot'
+
+# Optimizer settings
+momentum: 0.9
+weight_decay: 5e-4
+
+# Logging settings
+wandb:
+  project: 'CSUL_vit_c100_few_shot'

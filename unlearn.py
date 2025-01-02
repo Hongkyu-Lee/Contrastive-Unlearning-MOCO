@@ -5,6 +5,7 @@ from tqdm import tqdm
 import torch.nn as nn
 import wandb
 import sys
+sys.path.append("/home/hlee959/projects/2023_CSUL/CSUL/")
 from torch.nn import functional as F
 from core.args import Untrain_Parser
 from core.data import Data_Loader
@@ -156,13 +157,15 @@ def evaluate(model, loader, device):
 
 def run(args):
 
-    wandb.init(project="CSUL_MOCO_2",
+    wandb.init(project=args.wandb_project,
                config=args)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = Model_Loader(args)(name=args.model,
-                               num_classes=args.num_classes)
+                               num_classes=args.num_classes,
+                               feat_dim=args.feat_dim,
+                               )
     model = Checkpoint_Loader(args, model)
     model = model.to(device)
     trainloaders, testloaders = Data_Loader(args)
