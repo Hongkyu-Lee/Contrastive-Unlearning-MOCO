@@ -1,4 +1,5 @@
 import os
+import copy
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -13,7 +14,7 @@ from core.model import Model_Loader
 from core.model import Checkpoint_Loader
 
 class MOCO_Unlearn(nn.Module):
-    def __init__(self, args, device):
+    def __init__(self, args, model, device):
         super(MOCO_Unlearn, self).__init__()
         self.args = args
         self.temperature = args.temp
@@ -25,12 +26,24 @@ class MOCO_Unlearn(nn.Module):
         self.batch_size = args.batch_size
         self.CT_ratio = args.CT_ratio
         self.CE_ratio = args.CE_ratio
+        self.loss_type = args.loss_type
+        self.loss_threshold = args.loss_threshold
+        self.encoder_q = copy.deepcopy(model)
+        self.encoder_k = copy.deepcopy(model)
         self.register_buffer("queue", torch.randn(self.dim, self.K))
         self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
         self.register_buffer("abs_queue_ptr", torch.zeros(1, dtype=torch.long))
         self.register_buffer("label_queue", torch.ones(self.K)*-1)
         self.register_buffer("label_queue_ptr", torch.zeros(1, dtype=torch.long))
         self.register_buffer("abs_label_queue_ptr", torch.zeros(1, dtype=torch.long))
+
+    @torch.no_grad()
+    def _momentum_update_key_encoder(self):
+        """
+        Momentum update of the key encoder
+        """
+        for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
+            param_k.data = param_k.data * self.m + param_q.data * (1. - self.m)
 
     def unlearn(self, model, unlearn_loader, retain_loader, optim, criterion):
         
@@ -51,14 +64,14 @@ class MOCO_Unlearn(nn.Module):
                     rt_labels = rt_labels[:batch_size]
 
                 imgs = torch.cat([ul_imgs, rt_imgs.clone().detach().to(self.device)])
-                logits, feats = model(imgs)
+                logits, feats = self.encoder_q(imgs)
                 ul_logits, ul_feats = logits[:ul_imgs.shape[0]], feats[:ul_imgs.shape[0]]
                 rt_logits, _ = logits[ul_imgs.shape[0]:], feats[ul_imgs.shape[0]:]
                 # compute key features
                 with torch.no_grad():
                     # self._momentum_update_key_encoder()
                     # rt_imgs, idx_unshuffle = self._batch_shuffle_ddp(rt_imgs)
-                    _, rt_feats = model(rt_imgs.clone().detach().to(self.device))
+                    _, rt_feats = self.encoder_q(rt_imgs.clone().detach().to(self.device))
 
                 # compute logits
                 # enqueue & dequeue first.
@@ -76,15 +89,67 @@ class MOCO_Unlearn(nn.Module):
                 
                 logits /= self.temperature
 
+                
                 ul_loss = self.criterion(logits, pos_mask)
                 rt_loss = criterion(rt_logits, rt_labels)
-
-                optim.zero_grad()
-                loss = self.CT_ratio * ul_loss + self.CE_ratio * rt_loss
-                loss.backward()
-                optim.step()
+                if self.loss_type == "combined":
+                    optim.zero_grad()
+                    loss = self.CT_ratio * ul_loss + self.CE_ratio * rt_loss
+                    loss.backward()
+                    optim.step()
+                elif self.loss_type == "orthogonal":
+                    ul_loss, rt_loss = self.orthogonal_loss(ul_loss, rt_loss, model, optim)
 
                 wandb.log({"ul_loss": ul_loss, "rt_loss": rt_loss, "queue_size": int(self.abs_queue_ptr)})
+
+    def orthogonal_loss(self, ul_loss, rt_loss, model, optim):
+        # Get gradients independently for each loss
+        optim.zero_grad()
+        ul_loss.backward(retain_graph=True)
+        ul_grads = []
+        for param in model.parameters():
+            if param.grad is not None:
+                ul_grads.append(param.grad.clone())
+            else:
+                ul_grads.append(None)
+        
+        optim.zero_grad()
+        rt_loss.backward()
+        rt_grads = []
+        for param in model.parameters():
+            if param.grad is not None:
+                rt_grads.append(param.grad.clone())
+            else:
+                rt_grads.append(None)
+
+        total_grads = list()
+        for _ul_grad, _rt_grad in zip(ul_grads, rt_grads):
+            if _ul_grad is None:
+                total_grads.append(_rt_grad)
+            else:
+                mask = _ul_grad < self.loss_threshold
+                total_grads.append((~mask) * _ul_grad + mask * _rt_grad)
+        # Update model parameters with total gradients
+        for param, grad in zip(model.parameters(), total_grads):
+            param.grad = grad
+        optim.step()
+
+        # Calculate average gradients
+        avg_ul_grad = 0
+        avg_rt_grad = 0
+        count = 0
+        
+        for ul_g, rt_g in zip(ul_grads, rt_grads):
+            if ul_g is not None and rt_g is not None:
+                avg_ul_grad += torch.mean(torch.abs(ul_g))
+                avg_rt_grad += torch.mean(torch.abs(rt_g))
+                count += 1
+                
+        if count > 0:
+            avg_ul_grad = avg_ul_grad / count
+            avg_rt_grad = avg_rt_grad / count
+        
+        return avg_ul_grad, avg_rt_grad
 
     def criterion(self, logits, mask):
         # Compute log softmax
@@ -185,9 +250,7 @@ def run(args):
         ul_acc, ul_conf = evaluate(model, trainloaders[0], device)
         wandb.log({"test_acc": acc, "test_conf": conf, "ul_acc": ul_acc, "ul_conf": ul_conf})
 
-    
     wandb.finish()
-
 
 if __name__ == "__main__":
     parser = Untrain_Parser()
@@ -195,5 +258,9 @@ if __name__ == "__main__":
                        help='Ratio between unlearning loss and retain loss (default: 0.5)')
     parser.add_argument('--k', type=int, default=2000,
                        help='Number of samples in the queue (default: 2000)')
+    parser.add_argument('--loss_type', type=str, default="combined",
+                       help='Loss type (default: combined)')
+    parser.add_argument('--loss_threshold', type=float, default=1e-3,
+                       help='Loss threshold for orthogonal loss (default: 1e-3)')
     args = parser.parse_args()
     run(args)
